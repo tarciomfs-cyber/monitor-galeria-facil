@@ -1,1 +1,8 @@
-pip install streamlit pandas numpy plotly pytrends beautifulsoup4 requests scikit-learn
+streamlit
+pandas
+numpy
+plotly
+pytrends
+beautifulsoup4
+requests
+scikit-learn
