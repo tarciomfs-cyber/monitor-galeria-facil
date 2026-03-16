@@ -1,6 +1,0 @@
-streamlit
-pytrends
-pandas
-plotly
-numpy
-urlib
