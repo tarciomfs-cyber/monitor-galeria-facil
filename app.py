@@ -12,12 +12,30 @@ from sklearn.linear_model import LinearRegression
 st.set_page_config(page_title="Análise de Tendências E-commerce", layout="wide")
 st.title("📈 Analisador de Tendências de Produtos")
 
+# --- DICIONÁRIO DE CATEGORIAS ---
+CATEGORIAS_ML = {
+    "Geral": "https://tendencias.mercadolivre.com.br/",
+    "Acessórios para Veículos": "https://tendencias.mercadolivre.com.br/acessorios-para-veiculos",
+    "Alimentos e Bebidas": "https://tendencias.mercadolivre.com.br/alimentos-e-bebidas",
+    "Beleza e Cuidado Pessoal": "https://tendencias.mercadolivre.com.br/beleza-e-cuidado-pessoal",
+    "Brinquedos e Hobbies": "https://tendencias.mercadolivre.com.br/brinquedos-e-hobbies",
+    "Calçados, Roupas e Bolsas": "https://tendencias.mercadolivre.com.br/calcados-roupas-e-bolsas",
+    "Casa, Móveis e Decoração": "https://tendencias.mercadolivre.com.br/casa-moveis-e-decoracao",
+    "Celulares e Telefones": "https://tendencias.mercadolivre.com.br/celulares-e-telefones",
+    "Eletrodomésticos": "https://tendencias.mercadolivre.com.br/eletrodomesticos",
+    "Eletrônicos, Áudio e Vídeo": "https://tendencias.mercadolivre.com.br/eletronicos-audio-e-video",
+    "Esportes e Fitness": "https://tendencias.mercadolivre.com.br/esportes-e-fitness",
+    "Ferramentas": "https://tendencias.mercadolivre.com.br/ferramentas",
+    "Informática": "https://tendencias.mercadolivre.com.br/informatica",
+    "Saúde": "https://tendencias.mercadolivre.com.br/saude",
+    "Serviços": "https://tendencias.mercadolivre.com.br/1540-servicos"
+}
+
 # --- FUNÇÕES ---
 
-@st.cache_data(ttl=3600) # Cache de 1 hora
-def obter_tendencias_ml():
-    """Busca os termos em alta no Mercado Livre."""
-    url = "https://tendencias.mercadolivre.com.br/"
+@st.cache_data(ttl=3600)
+def obter_tendencias_ml(url):
+    """Busca os termos em alta em uma categoria específica do Mercado Livre."""
     headers = {'User-Agent': 'Mozilla/5.0'}
     
     try:
@@ -25,23 +43,19 @@ def obter_tendencias_ml():
         soup = BeautifulSoup(resposta.content, 'html.parser')
         
         tendencias = []
-        # O Mercado Livre costuma listar as buscas em tags <a> com classes específicas
-        # Vamos buscar links gerais que pareçam pesquisas para manter o código resiliente
         for item in soup.find_all('a'):
             texto = item.get_text(strip=True)
-            # Filtra links vazios ou curtos e evita duplicatas
             if texto and len(texto) > 3 and texto not in tendencias:
                 tendencias.append(texto)
                 
-        # Retorna apenas os 10 primeiros para evitar bloqueios no Google Trends
-        return tendencias[:10] if tendencias else ["Fones de ouvido", "Smartwatch", "Tênis esportivo"]
+        return tendencias[:10] if tendencias else ["Produto A", "Produto B", "Produto C"]
     except Exception as e:
         st.error(f"Erro ao acessar Mercado Livre: {e}")
         return []
 
 def obter_dados_trends(palavras_chave, periodo='today 6-m'):
     """Busca o volume de pesquisa no Google Trends."""
-    pytrends = TrendReq(hl='pt-BR', tz=180) # Fuso horário do Brasil
+    pytrends = TrendReq(hl='pt-BR', tz=180)
     try:
         pytrends.build_payload(palavras_chave, cat=0, timeframe=periodo, geo='BR')
         df = pytrends.interest_over_time()
@@ -49,29 +63,25 @@ def obter_dados_trends(palavras_chave, periodo='today 6-m'):
             df = df.drop(columns=['isPartial'])
         return df
     except Exception as e:
-        st.error("Erro ao comunicar com o Google Trends. Tente novamente mais tarde (limite de requisições).")
+        st.error("Erro ao comunicar com o Google Trends. O limite de requisições pode ter sido atingido.")
         return pd.DataFrame()
 
 def calcular_previsao_e_tendencia(df, dias_previsao=7):
-    """Calcula a regressão linear para prever os próximos dias e detectar tendência de alta."""
+    """Calcula a regressão linear para prever os próximos dias."""
     resultados = {}
     
     for coluna in df.columns:
-        # Preparar dados para o modelo
         y = df[coluna].values
         X = np.arange(len(y)).reshape(-1, 1)
         
         modelo = LinearRegression()
         modelo.fit(X, y)
         
-        # A inclinação da reta (coeficiente) indica se a tendência é de alta (> 0) ou baixa (< 0)
         tendencia_alta = modelo.coef_[0] > 0
         
-        # Prever os próximos dias
         X_futuro = np.arange(len(y), len(y) + dias_previsao).reshape(-1, 1)
         previsao = modelo.predict(X_futuro)
         
-        # Criar datas futuras
         ultima_data = df.index[-1]
         datas_futuras = [ultima_data + timedelta(days=i) for i in range(1, dias_previsao + 1)]
         
@@ -88,7 +98,6 @@ def plotar_grafico(df_historico, previsoes):
     fig = go.Figure()
     
     for coluna in df_historico.columns:
-        # Linha histórica
         fig.add_trace(go.Scatter(
             x=df_historico.index, 
             y=df_historico[coluna],
@@ -96,9 +105,7 @@ def plotar_grafico(df_historico, previsoes):
             name=f'{coluna} (Histórico)'
         ))
         
-        # Linha de previsão (tracejada)
         if coluna in previsoes:
-            # Conecta o último ponto histórico com o primeiro ponto da previsão
             x_prev = [df_historico.index[-1]] + previsoes[coluna]['datas_futuras']
             y_prev = [df_historico[coluna].iloc[-1]] + list(previsoes[coluna]['valores_previstos'])
             
@@ -126,9 +133,9 @@ with abas[0]:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        prod1 = st.text_input("Produto 1", "iPhone 15")
+        prod1 = st.text_input("Produto 1", "Placa de Vídeo")
     with col2:
-        prod2 = st.text_input("Produto 2", "Samsung S24")
+        prod2 = st.text_input("Produto 2", "Processador")
     with col3:
         prod3 = st.text_input("Produto 3", "")
         
@@ -149,16 +156,23 @@ with abas[0]:
 # Aba 2: Automação Mercado Livre
 with abas[1]:
     st.header("Produtos em Alta no Mercado Livre")
-    st.write("Buscando tendências e cruzando com o histórico de 6 meses do Google Trends.")
     
-    if st.button("Buscar e Analisar"):
+    # Adicionado o menu suspenso para escolher a categoria (Index 9 = Eletrônicos)
+    categoria_selecionada = st.selectbox(
+        "Selecione a Categoria para analisar:", 
+        list(CATEGORIAS_ML.keys()), 
+        index=9
+    )
+    
+    url_categoria = CATEGORIAS_ML[categoria_selecionada]
+    
+    if st.button(f"Buscar tendências em: {categoria_selecionada}"):
         with st.spinner("Raspando Mercado Livre e cruzando com Google Trends..."):
-            termos_ml = obter_tendencias_ml()
+            termos_ml = obter_tendencias_ml(url_categoria)
             
             if termos_ml:
-                st.write(f"**Termos encontrados:** {', '.join(termos_ml)}")
+                st.write(f"**Top 5 termos extraídos:** {', '.join(termos_ml[:5])}")
                 
-                # O Google Trends permite até 5 palavras por vez. Vamos testar os 5 primeiros.
                 termos_para_testar = termos_ml[:5] 
                 df_ml_trends = obter_dados_trends(termos_para_testar)
                 
@@ -168,7 +182,7 @@ with abas[1]:
                     produtos_em_alta = [p for p in previsoes_ml if previsoes_ml[p]['em_alta']]
                     
                     if produtos_em_alta:
-                        st.success(f"🔥 Produtos confirmados em tendência de ALTA no Google Trends: **{', '.join(produtos_em_alta)}**")
+                        st.success(f"🔥 Produtos confirmados em tendência de ALTA: **{', '.join(produtos_em_alta)}**")
                     else:
                         st.info("Nenhum dos produtos extraídos apresenta forte tendência de alta no momento.")
                         
